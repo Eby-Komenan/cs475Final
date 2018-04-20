@@ -76,7 +76,7 @@ public class KVStore extends AbstractKVStore {
 	 */
 	@Override
 	public String getValue(String key, String fromID) throws RemoteException {
-		return null;
+		return "";
 	}
 
 	/**
