@@ -1,14 +1,18 @@
 package edu.gmu.cs475;
 
 import org.apache.curator.framework.CuratorFramework;
+import org.apache.curator.framework.recipes.leader.LeaderLatch;
+import org.apache.curator.framework.recipes.leader.LeaderLatchListener;
+import org.apache.curator.framework.recipes.nodes.PersistentNode;
 import org.apache.curator.framework.state.ConnectionState;
+import org.apache.zookeeper.CreateMode;
 
 import java.io.IOException;
 import java.rmi.RemoteException;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class KVStore extends AbstractKVStore {
-
-
+	ConcurrentHashMap<String,ConcurrentHashMap<Integer,PersistentNode>> memberships;
 	/*
 	Do not change these constructors.
 	Any code that you need to run when the client starts should go in initClient.
@@ -31,12 +35,29 @@ public class KVStore extends AbstractKVStore {
 	 * <p>
 	 * You will also need to set up any listeners to track ZooKeeper events
 	 *
+	 * CuratorFrameWork is a substitute for the ZooKeeper object
 	 * @param localClientHostname Your client's hostname, which other clients will use to contact you
 	 * @param localClientPort     Your client's port number, which other clients will use to contact you
 	 */
+	@SuppressWarnings("resource")
 	@Override
 	public void initClient(String localClientHostname, int localClientPort) {
-
+		memberships = new ConcurrentHashMap<String,ConcurrentHashMap<Integer,PersistentNode>>();
+		// getLocalConnectString() will return string concat of localClientHostname + localClientPort
+		PersistentNode znode = new PersistentNode(zk, CreateMode.EPHEMERAL, false, 
+				ZK_MEMBERSHIP_NODE + "/" + getLocalConnectString(), new byte[0]);
+		// create a leader latch for electing leader
+		LeaderLatch elector = new LeaderLatch(zk, ZK_LEADER_NODE + "/" + getLocalConnectString());
+		znode.start();
+		// if the host name is empty
+		if(memberships.get(localClientHostname) == null)
+			memberships.put(localClientHostname, new ConcurrentHashMap<Integer,PersistentNode>());
+		memberships.get(localClientHostname).put(localClientPort, znode);
+		try {
+			elector.start();
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
 	}
 
 	/**
@@ -76,7 +97,7 @@ public class KVStore extends AbstractKVStore {
 	 */
 	@Override
 	public String getValue(String key, String fromID) throws RemoteException {
-		return "";
+		return null;
 	}
 
 	/**
@@ -110,13 +131,14 @@ public class KVStore extends AbstractKVStore {
 	}
 
 	/**
-	 * Called when ZooKeeper detects that your connection status changes
-	 * @param curatorFramework
-	 * @param connectionState
+	 * Called when there is a state change in the connection
+	 *
+	 * @param client   the client
+	 * @param newState the new state
 	 */
 	@Override
-	public void stateChanged(CuratorFramework curatorFramework, ConnectionState connectionState) {
-
+	public void stateChanged(CuratorFramework client, ConnectionState newState){
+		
 	}
 
 	/**
