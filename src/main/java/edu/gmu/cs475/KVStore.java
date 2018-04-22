@@ -1,10 +1,18 @@
 package edu.gmu.cs475;
 
 import org.apache.curator.framework.CuratorFramework;
+import org.apache.curator.framework.recipes.cache.TreeCache;
+import org.apache.curator.framework.recipes.leader.LeaderLatch;
+import org.apache.curator.framework.recipes.leader.LeaderLatchListener;
+import org.apache.curator.framework.recipes.nodes.PersistentNode;
 import org.apache.curator.framework.state.ConnectionState;
+import org.apache.zookeeper.CreateMode;
 
 import java.io.IOException;
+import java.rmi.NotBoundException;
 import java.rmi.RemoteException;
+import java.util.HashMap;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class KVStore extends AbstractKVStore {
 
@@ -21,8 +29,8 @@ public class KVStore extends AbstractKVStore {
 		super(zkConnectString, i1, i2, i3);
 	}
 
-
-
+	private ConcurrentHashMap<String, PersistentNode> groupMemberships = new ConcurrentHashMap<String, PersistentNode>();
+	private HashMap<String, TreeCache> groupLists = new HashMap<>();
 	/**
 	 * This callback is invoked once your client has started up and published an RMI endpoint.
 	 * <p>
@@ -36,7 +44,39 @@ public class KVStore extends AbstractKVStore {
 	 */
 	@Override
 	public void initClient(String localClientHostname, int localClientPort) {
-
+		//"local host" = localClientHostname
+		//localPort = localClientPort
+		
+		PersistentNode myMembership = new PersistentNode
+				(zk, CreateMode.EPHEMERAL, false, ZK_MEMBERSHIP_NODE + "/" + getLocalConnectString(), new byte[0]);
+		
+		
+		myMembership.start();
+		
+		//groupMemberships.put(localClientHostname, myMembership);
+		
+//		TreeCache members = new TreeCache(zk, ZK_MEMBERSHIP_NODE+"/"+localClientHostname);
+//		members.getListenable().addListener((client, event) -> {
+//			System.out.println("Client" + localClientPort + "Membership change detected: " + event);
+//		});
+//		
+//		try {
+//			members.start();
+//			//groupLists.put(localClientHostname, members);
+//		}catch(Exception e) {
+//			e.printStackTrace();
+//		}
+		//String str = Integer.toString(localClientPort);
+		LeaderLatch myLeader = new LeaderLatch(zk, ZK_LEADER_NODE + "/" + getLocalConnectString());
+		try {
+			//myLeader.addListener((LeaderLatchListener) myMembership.getListenable());
+			myLeader.start();
+		} catch (Exception e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+		
+		
 	}
 
 	/**
@@ -116,7 +156,9 @@ public class KVStore extends AbstractKVStore {
 	 */
 	@Override
 	public void stateChanged(CuratorFramework curatorFramework, ConnectionState connectionState) {
-
+		System.out.println("Client -- Connection state changed: "+ connectionState);
+		System.out.println("CuratorFramwork state changed: "+curatorFramework.getState());
+		
 	}
 
 	/**
