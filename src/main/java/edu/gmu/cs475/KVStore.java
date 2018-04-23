@@ -13,6 +13,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 public class KVStore extends AbstractKVStore {
 	ConcurrentHashMap<String,ConcurrentHashMap<Integer,PersistentNode>> memberships;
+	LeaderLatch applier;
 	/*
 	Do not change these constructors.
 	Any code that you need to run when the client starts should go in initClient.
@@ -39,22 +40,33 @@ public class KVStore extends AbstractKVStore {
 	 * @param localClientHostname Your client's hostname, which other clients will use to contact you
 	 * @param localClientPort     Your client's port number, which other clients will use to contact you
 	 */
-	@SuppressWarnings("resource")
 	@Override
 	public void initClient(String localClientHostname, int localClientPort) {
 		memberships = new ConcurrentHashMap<String,ConcurrentHashMap<Integer,PersistentNode>>();
 		// getLocalConnectString() will return string concat of localClientHostname + localClientPort
 		PersistentNode znode = new PersistentNode(zk, CreateMode.EPHEMERAL, false, 
 				ZK_MEMBERSHIP_NODE + "/" + getLocalConnectString(), new byte[0]);
-		// create a leader latch for electing leader
-		LeaderLatch elector = new LeaderLatch(zk, ZK_LEADER_NODE + "/" + getLocalConnectString());
 		znode.start();
+		// create a leader latch for electing leader
+		applier = new LeaderLatch(zk, ZK_LEADER_NODE, getLocalConnectString());
+		applier.addListener(new LeaderLatchListener(){
+			@Override
+			public void isLeader() {
+				System.out.println(applier.getId() + " " + "is the new leader");				
+			}
+
+			@Override
+			public void notLeader() {
+				System.out.println(applier.getId() + " " + "is not a leader");
+				
+			}
+		});
 		// if the host name is empty
 		if(memberships.get(localClientHostname) == null)
 			memberships.put(localClientHostname, new ConcurrentHashMap<Integer,PersistentNode>());
 		memberships.get(localClientHostname).put(localClientPort, znode);
 		try {
-			elector.start();
+			applier.start();
 		} catch (Exception e) {
 			e.printStackTrace();
 		}
