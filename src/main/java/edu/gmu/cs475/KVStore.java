@@ -1,6 +1,9 @@
 package edu.gmu.cs475;
 
 import org.apache.curator.framework.CuratorFramework;
+import org.apache.curator.framework.recipes.cache.TreeCache;
+import org.apache.curator.framework.recipes.cache.TreeCacheEvent;
+import org.apache.curator.framework.recipes.cache.TreeCacheListener;
 import org.apache.curator.framework.recipes.leader.LeaderLatch;
 import org.apache.curator.framework.recipes.leader.LeaderLatchListener;
 import org.apache.curator.framework.recipes.nodes.PersistentNode;
@@ -14,6 +17,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public class KVStore extends AbstractKVStore {
 	ConcurrentHashMap<String,ConcurrentHashMap<Integer,PersistentNode>> memberships;
 	LeaderLatch applier;
+	TreeCache members;
 	/*
 	Do not change these constructors.
 	Any code that you need to run when the client starts should go in initClient.
@@ -41,7 +45,7 @@ public class KVStore extends AbstractKVStore {
 	 * @param localClientPort     Your client's port number, which other clients will use to contact you
 	 */
 	@Override
-	public void initClient(String localClientHostname, int localClientPort) {
+	public void initClient(String localClientHostname, int localClientPort) {		
 		memberships = new ConcurrentHashMap<String,ConcurrentHashMap<Integer,PersistentNode>>();
 		// getLocalConnectString() will return string concat of localClientHostname + localClientPort
 		PersistentNode znode = new PersistentNode(zk, CreateMode.EPHEMERAL, false, 
@@ -62,10 +66,54 @@ public class KVStore extends AbstractKVStore {
 			}
 		});
 		// if the host name is empty
-		if(memberships.get(localClientHostname) == null)
+		if(memberships.get(localClientHostname) == null){
 			memberships.put(localClientHostname, new ConcurrentHashMap<Integer,PersistentNode>());
+			// set up a tree to watch this path only if it does not exist yet
+			// so it only initialize the tree once
+			// is it correct that we are making a treecache at specific path? Or just the general
+			// ZK_MEMBERSHIP_NODE since that hold all the nodes?
+			members = new TreeCache(zk,ZK_MEMBERSHIP_NODE + "/" + getLocalConnectString());
+			// adding a listener for changes in the treecache
+			// temporary boiler plate
+			TreeCacheListener instanceListener = new TreeCacheListener(){
+				@Override
+				public void childEvent(CuratorFramework zk, TreeCacheEvent event) throws Exception {
+					switch(event.getType()){
+						case CONNECTION_LOST:
+							System.out.println("Connection lost from this instance");
+						break;
+						case CONNECTION_RECONNECTED:
+							System.out.println("Connection has been restored from this instance");
+						break;
+						case CONNECTION_SUSPENDED:
+							System.out.println("Connection has been suspended");
+						break;
+						case INITIALIZED:
+							System.out.println("Connection is initialized from instance: " + getLocalConnectString());
+						break;
+						case NODE_ADDED:
+							System.out.println("A node has been added from this instance: " + getLocalConnectString());
+						break;
+						case NODE_REMOVED:
+							System.out.println("A node has been removed from this instance: " + getLocalConnectString());
+						break;
+						case NODE_UPDATED:
+							System.out.println("This instance node value has been updated to: " + znode.getData());
+						break;
+						default:
+							// nothing :(
+						break;
+					}
+					
+				}
+				
+			};
+			members.getListenable().addListener(instanceListener);
+			
+		}
 		memberships.get(localClientHostname).put(localClientPort, znode);
 		try {
+			members.start();
 			applier.start();
 		} catch (Exception e) {
 			e.printStackTrace();
